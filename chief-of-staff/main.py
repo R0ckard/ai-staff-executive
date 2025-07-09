@@ -647,23 +647,13 @@ async def voice_conversation(audio: UploadFile = File(...)):
                 except Exception as e:
                     ai_response = f"I apologize, but I encountered an error processing your request: {str(e)}. I'm still available for basic status updates."
             
-            # Step 3: Generate speech from AI response
-            speech_response = openai_client.audio.speech.create(
-                model="tts-1",
-                voice="alloy",
-                input=ai_response
-            )
-            
-            # Save speech to temporary file and return as FileResponse
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as speech_file:
-                speech_file.write(speech_response.content)
-                speech_file_path = speech_file.name
-            
-            return FileResponse(
-                speech_file_path,
-                media_type="audio/mpeg",
-                filename="response.mp3"
-            )
+            # Return JSON response with transcribed text and AI response
+            # (Frontend expects this format, not audio file)
+            return {
+                "user_text": user_text,
+                "ai_response": ai_response,
+                "status": "success"
+            }
             
         finally:
             # Clean up temp file
