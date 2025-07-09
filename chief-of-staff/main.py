@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import httpx
@@ -7,6 +7,8 @@ from datetime import datetime
 from typing import Dict, Any, List, Optional
 import logging
 import os
+import base64
+from voice_processor import voice_processor
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -496,6 +498,116 @@ async def escalate_issue(request: Request):
     except Exception as e:
         logger.error(f"Error in escalate endpoint: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error processing escalation: {str(e)}")
+
+# Voice Processing Endpoints
+@app.post("/voice")
+async def process_voice_input(audio: UploadFile = File(...)):
+    """Process voice input and return transcribed text"""
+    try:
+        # Read audio data
+        audio_data = await audio.read()
+        
+        # Get file extension from filename
+        filename = audio.filename or "audio.webm"
+        file_extension = filename.split('.')[-1].lower()
+        
+        # Process audio using voice processor
+        result = voice_processor.process_audio_input(audio_data, file_extension)
+        
+        if not result["success"]:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "error": result["error"],
+                    "text": ""
+                }
+            )
+        
+        return {
+            "success": True,
+            "text": result["text"],
+            "format": result["format"],
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error processing voice input: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": f"Voice processing failed: {str(e)}",
+                "text": ""
+            }
+        )
+
+@app.post("/voice/speak")
+async def generate_speech(request: Request):
+    """Generate speech from text"""
+    try:
+        data = await request.json()
+        text = data.get("text", "")
+        voice = data.get("voice", "alloy")
+        
+        if not text:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "error": "No text provided for speech generation"
+                }
+            )
+        
+        # Generate speech using voice processor
+        result = voice_processor.generate_speech(text, voice)
+        
+        if not result["success"]:
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "success": False,
+                    "error": result["error"]
+                }
+            )
+        
+        return {
+            "success": True,
+            "audio_data": result["audio_data"],
+            "format": result["format"],
+            "voice": result["voice"],
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error generating speech: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": f"Speech generation failed: {str(e)}"
+            }
+        )
+
+@app.get("/voice/status")
+async def get_voice_status():
+    """Get voice processing status and capabilities"""
+    try:
+        status = voice_processor.get_voice_status()
+        return {
+            "voice_status": status,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting voice status: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "error": str(e)
+            }
+        )
 
 if __name__ == "__main__":
     import uvicorn
