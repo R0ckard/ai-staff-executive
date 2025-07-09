@@ -631,17 +631,15 @@ async def voice_conversation(audio: UploadFile = File(...)):
             else:
                 # Use OpenAI for general responses with organizational context
                 try:
-                    response = await asyncio.wait_for(
-                        openai_client.chat.completions.create(
-                            model=OPENAI_MODEL,
-                            messages=[
-                                {"role": "system", "content": SYSTEM_PROMPT},
-                                {"role": "user", "content": user_text}
-                            ],
-                            temperature=OPENAI_TEMPERATURE,
-                            max_tokens=1000
-                        ),
-                        timeout=30.0
+                    # Use the sync OpenAI client directly (not async)
+                    response = openai_client.chat.completions.create(
+                        model=OPENAI_MODEL,
+                        messages=[
+                            {"role": "system", "content": SYSTEM_PROMPT},
+                            {"role": "user", "content": user_text}
+                        ],
+                        temperature=OPENAI_TEMPERATURE,
+                        max_tokens=1000
                     )
                     ai_response = response.choices[0].message.content
                 except Exception as e:
