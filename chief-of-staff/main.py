@@ -589,6 +589,91 @@ async def get_voice_status():
         "timestamp": datetime.now().isoformat()
     }
 
+@app.post("/voice/conversation")
+async def voice_conversation(audio: UploadFile = File(...)):
+    """Complete voice conversation: Speech -> AI -> Speech"""
+    if not openai_client:
+        raise HTTPException(status_code=500, detail="OpenAI API key not configured")
+    
+    try:
+        # Save uploaded audio to temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as temp_file:
+            content = await audio.read()
+            temp_file.write(content)
+            temp_file_path = temp_file.name
+        
+        try:
+            # Step 1: Speech to text using OpenAI Whisper
+            with open(temp_file_path, "rb") as audio_file:
+                transcript = openai_client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=audio_file
+                )
+            
+            user_text = transcript.text
+            
+            # Step 2: Process with AI (using the existing chat logic)
+            # Create a simple request object for the chat processing
+            chat_data = {"message": user_text}
+            
+            # Process the message using the same logic as the chat endpoint
+            if "project manager" in user_text.lower() and ("update" in user_text.lower() or "status" in user_text.lower()):
+                pm_update = await contact_project_manager()
+                if pm_update["status"] == "success":
+                    ai_response = f"I've contacted the Project Manager. Current status: {pm_update['updates']['summary']}"
+                else:
+                    ai_response = f"I attempted to contact the Project Manager but encountered an issue: {pm_update['message']}"
+            
+            elif "system status" in user_text.lower() or "overall status" in user_text.lower():
+                system_status = await get_system_status()
+                ai_response = f"System status: Local development has {system_status['environments']['local_development']['agents_operational']} agents operational, Azure cloud has {system_status['environments']['azure_cloud']['agents_operational']} agents operational."
+            
+            else:
+                # Use OpenAI for general responses with organizational context
+                try:
+                    response = await asyncio.wait_for(
+                        openai_client.chat.completions.create(
+                            model=OPENAI_MODEL,
+                            messages=[
+                                {"role": "system", "content": SYSTEM_PROMPT},
+                                {"role": "user", "content": user_text}
+                            ],
+                            temperature=OPENAI_TEMPERATURE,
+                            max_tokens=1000
+                        ),
+                        timeout=30.0
+                    )
+                    ai_response = response.choices[0].message.content
+                except Exception as e:
+                    ai_response = f"I apologize, but I encountered an error processing your request: {str(e)}. I'm still available for basic status updates."
+            
+            # Step 3: Generate speech from AI response
+            speech_response = openai_client.audio.speech.create(
+                model="tts-1",
+                voice="alloy",
+                input=ai_response
+            )
+            
+            # Save speech to temporary file and return as FileResponse
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as speech_file:
+                speech_file.write(speech_response.content)
+                speech_file_path = speech_file.name
+            
+            return FileResponse(
+                speech_file_path,
+                media_type="audio/mpeg",
+                filename="response.mp3"
+            )
+            
+        finally:
+            # Clean up temp file
+            if os.path.exists(temp_file_path):
+                os.remove(temp_file_path)
+        
+    except Exception as e:
+        logger.error(f"Error in voice conversation: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Voice conversation failed: {str(e)}")
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8001)
